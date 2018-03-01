@@ -68,47 +68,6 @@ class TransformerEncoder(FairseqEncoder):
         return self.embed_positions.max_positions()
         
 
-class AttentionLayer(nn.Module):
-    def __init__(self, conv_channels, embed_dim, bmm=None):
-        super().__init__()
-        # projects from output of convolution to embedding dimension
-        self.in_projection = Linear(conv_channels, embed_dim)
-        # projects from embedding dimension to convolution size
-        self.out_projection = Linear(embed_dim, conv_channels)
-
-        self.bmm = bmm if bmm is not None else torch.bmm
-
-    def forward(self, x, target_embedding, encoder_out):
-        residual = x
-
-        # attention
-        x = (self.in_projection(x) + target_embedding) * math.sqrt(0.5)
-        x = self.bmm(x, encoder_out[0])
-
-        # softmax over last dim
-        sz = x.size()
-        x = F.softmax(x.view(sz[0] * sz[1], sz[2]), dim=1)
-        x = x.view(sz)
-        attn_scores = x
-
-        x = self.bmm(x, encoder_out[1])
-
-        # scale attention output
-        s = encoder_out[1].size(1)
-        x = x * (s * math.sqrt(1.0 / s))
-
-        # project back
-        x = (self.out_projection(x) + residual) * math.sqrt(0.5)
-        return x, attn_scores
-
-    def make_generation_fast_(self, beamable_mm_beam_size=None, **kwargs):
-        """Replace torch.bmm with BeamableMM."""
-        if beamable_mm_beam_size is not None:
-            del self.bmm
-            self.add_module('bmm', BeamableMM(beamable_mm_beam_size))
-
-
-
 class TransformerDecoder(FairseqIncrementalDecoder):
     """Transformer decoder."""
     def __init__(self, dictionary, embed_dim=256, max_positions=1024,
@@ -141,7 +100,10 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             self.norm1_blocks.append(LayerNormalization(hidden_size))
             self.norm2_blocks.append(LayerNormalization(hidden_size))
             self.norm3_blocks.append(LayerNormalization(hidden_size))
-            self.encdec_attention_blocks.append(MultiheadAttention(hidden_size, hidden_size, hidden_size, num_heads, to_weights=True))
+            self.encdec_attention_blocks.append(MultiheadAttention(hidden_size, 
+                                                                   hidden_size,
+                                                                   hidden_size, 
+                                                                   num_heads))
 
         if share_embed:
             assert out_embed_dim == embed_dim, \
@@ -167,7 +129,6 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         # embed tokens and positions
         x = self.embed_tokens(input_tokens) + positions
         x = F.dropout(x, p=self.dropout, training=self.training)
-        target_embedding = x
         
         avg_attn_scores = None
         num_attn_layers = len(self.encdec_attention_blocks)
@@ -180,16 +141,19 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             y = self_attention(norm1(x), None, decoder_self_attention_bias)
             x = residual(x, y, self.dropout, self.training)
             
-            y, attn_scores = encdec_attention(norm2(x), encoder_out, None)
-            if avg_attn_scores is None:
-                avg_attn_scores = attn_scores
+            if self._is_incremental_eval:
+                y, attn_scores = encdec_attention(norm2(x), encoder_out, None, True)
+                attn_scores = attn_scores / self.layers
+                if avg_attn_scores is None:
+                    avg_attn_scores = attn_scores
+                else:
+                    avg_attn_scores.add_(attn_scores)
             else:
-                avg_attn_scores.add_(attn_scores)
+                y = encdec_attention(norm2(x), encoder_out, None)
             x = residual(x, y, self.dropout, self.training)
 
             y = ffn(norm3(x))
             x = residual(x, y, self.dropout, self.training)
-        avg_attn_scores = avg_attn_scores / self.layers
         x = self.out_embed(x)
         return x, avg_attn_scores
 
@@ -216,7 +180,7 @@ class MultiheadAttention(nn.Module):
     """Multi-head attention mechanism"""
     def __init__(self, 
                  key_depth, value_depth, output_depth,
-                 num_heads, dropout=0.1, to_weights=False):
+                 num_heads, dropout=0.1):
         super(MultiheadAttention, self).__init__()
 
         self._query = Linear(key_depth, key_depth, bias=False)
@@ -227,9 +191,8 @@ class MultiheadAttention(nn.Module):
         self.num_heads = num_heads
         self.key_depth_per_head = key_depth // num_heads
         self.dropout = dropout
-        self.to_weights = to_weights
         
-    def forward(self, query_antecedent, memory_antecedent, bias):
+    def forward(self, query_antecedent, memory_antecedent, bias, to_weights=False):
         if memory_antecedent is None:
             memory_antecedent = query_antecedent
         q = self._query(query_antecedent)
@@ -247,8 +210,9 @@ class MultiheadAttention(nn.Module):
         for i in range(self.num_heads):
             results = dot_product_attention(q[i], k[i], v[i],
                                             bias,
-                                            self.dropout, self.to_weights)
-            if self.to_weights:
+                                            self.dropout,
+                                            to_weights)
+            if to_weights:
                 y, attn_scores = results
                 if avg_attn_scores is None:
                     avg_attn_scores = attn_scores
@@ -259,13 +223,14 @@ class MultiheadAttention(nn.Module):
             x.append(y)
         x = combine_heads(x)
         x = self.output_perform(x)
-        if self.to_weights:
+        if to_weights:
             return x, avg_attn_scores / self.num_heads
         else:
             return x
 
 
 class MultiheadAttentionDecoder(MultiheadAttention):
+    """Multihead Attention for incremental eval"""
     def __init__(self,
                  key_depth, value_depth, output_depth,
                  num_heads, dropout=0.1):
@@ -342,6 +307,7 @@ class FeedForwardNetwork(nn.Module):
 
 
 def residual(x, y, dropout, training):
+    """Residual connection"""
     y = F.dropout(y, p=dropout, training=training)
     return x + y
 
@@ -380,6 +346,9 @@ def dot_product_attention(q, k, v, bias, dropout, to_weights=False):
         q: query antecedent, [batch, length, depth]
         k: key antecedent,   [batch, length, depth]
         v: value antecedent, [batch, length, depth]
+        bias: masked matrix
+        dropout: dropout rate
+        to_weights: whether to print weights
     """
     # [batch, length, depth] x [batch, depth, length] -> [batch, length, length]
     logits = torch.bmm(q, k.transpose(1, 2).contiguous())
@@ -415,25 +384,6 @@ def Linear(in_features, out_features, bias=True, dropout=0):
     return m
 
 
-def LinearizedConv1d(in_channels, out_channels, kernel_size, dropout=0, **kwargs):
-    """Weight-normalized Conv1d layer optimized for decoding"""
-    m = LinearizedConvolution(in_channels, out_channels, kernel_size, **kwargs)
-    std = math.sqrt((4 * (1.0 - dropout)) / (m.kernel_size[0] * in_channels))
-    m.weight.data.normal_(mean=0, std=std)
-    m.bias.data.zero_()
-    return nn.utils.weight_norm(m, dim=2)
-
-
-def ConvTBC(in_channels, out_channels, kernel_size, dropout=0, **kwargs):
-    """Weight-normalized Conv1d layer"""
-    from fairseq.modules import ConvTBC
-    m = ConvTBC(in_channels, out_channels, kernel_size, **kwargs)
-    std = math.sqrt((4 * (1.0 - dropout)) / (m.kernel_size[0] * in_channels))
-    m.weight.data.normal_(mean=0, std=std)
-    m.bias.data.zero_()
-    return nn.utils.weight_norm(m, dim=2)
-
-
 def attention_bias_ignore_padding(src_tokens, padding_idx):
     """Calculate the padding mask based on which embedding are zero
     Args:
@@ -466,27 +416,23 @@ def _check_arch(args):
 def parse_arch(args):
     _check_arch(args)
 
+    #args.optimizer = 'adam'
+    #args.adam_betas = '(0.9, 0.98)'
+
     if args.arch == 'transformer_iwslt_de_en':
         args.hidden_size = 256
         args.filter_size = 1024
         args.num_heads = 4
         args.num_layers = 2
-
-        args.encoder_embed_dim = 256
-        args.encoder_layers = '[(256, 3)] * 4'
-        args.decoder_embed_dim = 256
-        args.decoder_layers = '[(256, 3)] * 3'
-        args.decoder_out_embed_dim = 256
+        args.label_smoothing = 0.1
+        args.dropout = 0.1
+    elif args.arch == 'transformer_lmc_zh_en':
+        args.hidden_size = 512
+        args.filter_size = 2048
+        args.num_heads = 8
+        args.num_layers = 6
     else:
         assert args.arch == 'transformer'
-
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
-    args.encoder_layers = getattr(args, 'encoder_layers', '[(512, 3)] * 20')
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 512)
-    args.decoder_layers = getattr(args, 'decoder_layers', '[(512, 3)] * 20')
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 256)
-    args.decoder_attention = getattr(args, 'decoder_attention', 'True')
-    args.share_input_output_embed = getattr(args, 'share_input_output_embed', False)
 
     return args
 
@@ -496,10 +442,16 @@ def build_model(args, src_dict, dst_dict):
         src_dict,
         num_layers=args.num_layers,
         num_heads=args.num_heads,
-        filter_size=args.filter_size
+        filter_size=args.filter_size,
+        dropout=args.dropout
     )
     decoder = TransformerDecoder(
         dst_dict,
+        num_layers=args.num_layers,
+        hidden_size=args.hidden_size,
+        filter_size=args.filter_size,
+        num_heads=args.num_heads,
+        dropout=args.dropout
     )
     return TransformerModel(encoder, decoder)
 

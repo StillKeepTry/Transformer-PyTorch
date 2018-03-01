@@ -1,11 +1,10 @@
-import math
 import torch
 from torch.autograd import Variable 
 import torch.nn as nn
 import torch.nn.functional as F
 
 from fairseq import utils
-from fairseq.modules import LearnedPositionalEmbedding, GradMultiply, LinearizedConvolution, LayerNormalization, BeamableMM
+from fairseq.modules import LearnedPositionalEmbedding, LayerNormalization, BeamableMM
 from fairseq.data import LanguagePairDataset
 
 from . import FairseqEncoder, FairseqIncrementalDecoder, FairseqModel
@@ -291,7 +290,6 @@ class MultiheadAttentionDecoder(MultiheadAttention):
             self.value_buffer.data = self.value_buffer.data.index_select(0, new_order)
 
 
-
 class FeedForwardNetwork(nn.Module):
     def __init__(self, hidden_size, filter_size, dropout):
         super(FeedForwardNetwork, self).__init__()
@@ -430,6 +428,7 @@ def parse_arch(args):
         args.hidden_size = 512
         args.filter_size = 2048
         args.num_heads = 8
+        args.label_smoothing = 0.1
         args.num_layers = 6
     else:
         assert args.arch == 'transformer'

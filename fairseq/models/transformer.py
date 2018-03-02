@@ -408,7 +408,12 @@ def get_archs():
 
 
 def _check_arch(args):
-    pass
+    if args.arch not in get_archs():
+        raise ValueError('Unknown transformer model architecture: {}'.format(args.arch))
+    if args.arch != 'transformer':
+        for a in ['hidden_size', 'filter_size', 'num_heads', 'num_layers']:
+            if hasattr(args, a):
+                raise ValueError('--{} cannot be combined with --arch={}'.format(a, args.arch))
 
 
 def parse_arch(args):

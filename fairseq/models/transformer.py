@@ -1,5 +1,5 @@
 import torch
-from torch.autograd import Variable 
+from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -8,6 +8,7 @@ from fairseq.modules import LearnedPositionalEmbedding, LayerNormalization, Beam
 from fairseq.data import LanguagePairDataset
 
 from . import FairseqEncoder, FairseqIncrementalDecoder, FairseqModel
+
 
 class TransformerModel(FairseqModel):
     def __init__(self, encoder, decoder):
@@ -32,13 +33,16 @@ class TransformerEncoder(FairseqEncoder):
                                                    left_pad=LanguagePairDataset.LEFT_PAD_SOURCE)
 
         self.layers = num_layers
-        
+
         self.self_attention_blocks = nn.ModuleList()
         self.ffn_blocks = nn.ModuleList()
         self.norm1_blocks = nn.ModuleList()
         self.norm2_blocks = nn.ModuleList()
         for i in range(num_layers):
-            self.self_attention_blocks.append(MultiheadAttention(hidden_size, hidden_size, hidden_size, num_heads))
+            self.self_attention_blocks.append(MultiheadAttention(hidden_size,
+                                                                 hidden_size,
+                                                                 hidden_size,
+                                                                 num_heads))
             self.ffn_blocks.append(FeedForwardNetwork(hidden_size, filter_size, relu_dropout))
             self.norm1_blocks.append(LayerNormalization(hidden_size))
             self.norm2_blocks.append(LayerNormalization(hidden_size))
@@ -50,8 +54,8 @@ class TransformerEncoder(FairseqEncoder):
         encoder_self_attention_bias = encoder_attention_bias(input_to_padding)
         encoder_input = self.embed_tokens(src_tokens) + self.embed_positions(src_tokens)
         x = F.dropout(encoder_input, p=self.dropout, training=self.training)
-        
-        for self_attention, ffn, norm1, norm2 in zip(self.self_attention_blocks, 
+
+        for self_attention, ffn, norm1, norm2 in zip(self.self_attention_blocks,
                                                      self.ffn_blocks,
                                                      self.norm1_blocks,
                                                      self.norm2_blocks):
@@ -65,7 +69,7 @@ class TransformerEncoder(FairseqEncoder):
     def max_positions(self):
         """Maximum input length supported by the encoder."""
         return self.embed_positions.max_positions()
-        
+
 
 class TransformerDecoder(FairseqIncrementalDecoder):
     """Transformer decoder."""
@@ -94,14 +98,17 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         self.norm2_blocks = nn.ModuleList()
         self.norm3_blocks = nn.ModuleList()
         for i in range(num_layers):
-            self.self_attention_blocks.append(MultiheadAttentionDecoder(hidden_size, hidden_size, hidden_size, num_heads))
+            self.self_attention_blocks.append(MultiheadAttentionDecoder(hidden_size,
+                                                                        hidden_size,
+                                                                        hidden_size,
+                                                                        num_heads))
             self.ffn_blocks.append(FeedForwardNetwork(hidden_size, filter_size, relu_dropout))
             self.norm1_blocks.append(LayerNormalization(hidden_size))
             self.norm2_blocks.append(LayerNormalization(hidden_size))
             self.norm3_blocks.append(LayerNormalization(hidden_size))
-            self.encdec_attention_blocks.append(MultiheadAttention(hidden_size, 
+            self.encdec_attention_blocks.append(MultiheadAttention(hidden_size,
                                                                    hidden_size,
-                                                                   hidden_size, 
+                                                                   hidden_size,
                                                                    num_heads))
 
         if share_embed:
@@ -121,14 +128,14 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         decoder_self_attention_bias += attention_bias_lower_triangle(input_tokens)
         # embed positions
         positions = self.embed_positions(input_tokens)
-        
+
         if self._is_incremental_eval:
             input_tokens = input_tokens[:, -1:]
             decoder_self_attention_bias = decoder_self_attention_bias[:, -1:, :]
         # embed tokens and positions
         x = self.embed_tokens(input_tokens) + positions
         x = F.dropout(x, p=self.dropout, training=self.training)
-        
+
         avg_attn_scores = None
         num_attn_layers = len(self.encdec_attention_blocks)
         for self_attention, encdec_attention, ffn, norm1, norm2, norm3 in zip(self.self_attention_blocks,
@@ -404,7 +411,7 @@ def encoder_attention_bias(bias):
 
 
 def get_archs():
-    return ['transformer_iwslt_de_en', 'transformer', 'transformer_wmt_en_de', 'transformer_lmc_zh_en']
+    return ['transformer_small', 'transformer', 'transformer_base', 'transformer_big']
 
 
 def _check_arch(args):
@@ -419,22 +426,27 @@ def _check_arch(args):
 def parse_arch(args):
     _check_arch(args)
 
-    #args.optimizer = 'adam'
-    #args.adam_betas = '(0.9, 0.98)'
-
-    if args.arch == 'transformer_iwslt_de_en':
+    if args.arch == 'transformer_small':
         args.hidden_size = 256
         args.filter_size = 1024
         args.num_heads = 4
         args.num_layers = 2
         args.label_smoothing = 0.1
         args.dropout = 0.1
-    elif args.arch == 'transformer_lmc_zh_en':
+    elif args.arch == 'transformer_base':
         args.hidden_size = 512
         args.filter_size = 2048
         args.num_heads = 8
         args.label_smoothing = 0.1
         args.num_layers = 6
+        args.dropout = 0.1
+    elif args.arch == 'transformer_big':
+        args.hidden_size = 1024
+        args.filter_size = 4096
+        args.num_heads = 16
+        args.label_smoothing = 0.1
+        args.num_layers = 6
+        args.dropout = 0.2
     else:
         assert args.arch == 'transformer'
 

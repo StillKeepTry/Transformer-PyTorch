@@ -1,6 +1,6 @@
 # Introduction
 
-This project provide a PyTorch implementation about [Attention is all you need](https://arxiv.org/pdf/1706.03762.pdf) based on [fairseq-py](https://github.com/facebookresearch/fairseq-py).
+This project provide a PyTorch implementation about [Attention is all you need](https://arxiv.org/pdf/1706.03762.pdf) based on [fairseq-py](https://github.com/facebookresearch/fairseq-py) (An official toolkit of facebook research). You can also use office code about *Attention is all you need* from [tensor2tensor](https://github.com/tensorflow/tensor2tensor).
 
 If you use this code about cnn, please cite:
 ```
@@ -20,7 +20,7 @@ And if you use this code about transformer, please cite:
   booktitle = {Proc. of NIPS},
 }
 ```
-Feel grateful for the contribution of the facebook research and the google research.
+Feel grateful for the contribution of the facebook research and the google research. Besides, if you get benefits from this repository, please give me a star.
 
 # Details
 

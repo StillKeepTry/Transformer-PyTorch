@@ -24,6 +24,17 @@ Feel grateful for the contribution of the facebook research and the google resea
 
 # Details
 
+## IWSLT14 German-English
+In this dataset,  this dataset contains 160K training sentences. We recommend you to use `transformer_small` setting. The results are as follow:
+
+|Word Type|BLEU|
+|-:|:-:|
+|10K sub-word|b|
+
+## Nist Chinese-English
+
+## WMT14 English-German
+
 # Results
 
 # License

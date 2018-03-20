@@ -456,16 +456,19 @@ def parse_arch(args):
 def build_model(args, src_dict, dst_dict):
     encoder = TransformerEncoder(
         src_dict,
+        embed_dim=args.hidden_size,
+        hidden_size=args.hidden_size,
+        filter_size=args.filter_size,
         num_layers=args.num_layers,
         num_heads=args.num_heads,
-        filter_size=args.filter_size,
         dropout=args.dropout
     )
     decoder = TransformerDecoder(
         dst_dict,
-        num_layers=args.num_layers,
+        embed_dim=args.hidden_size,
         hidden_size=args.hidden_size,
         filter_size=args.filter_size,
+        num_layers=args.num_layers,
         num_heads=args.num_heads,
         dropout=args.dropout
     )

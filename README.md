@@ -24,18 +24,26 @@ Feel grateful for the contribution of the facebook research and the google resea
 
 # Details
 
+# Results
+
 ## IWSLT14 German-English
-In this dataset,  this dataset contains 160K training sentences. We recommend you to use `transformer_small` setting. The results are as follow:
+In this dataset,  this dataset contains 160K training sentences. We recommend you to use `transformer_small` setting. The beam size is set as 5. The results are as follow:
 
 |Word Type|BLEU|
-|-:|:-:|
-|10K sub-word|b|
+|:-:|:-:|
+|10K jointly-sub-word|31.06|
+|25K jointly-sub-word|31.79|
 
 ## Nist Chinese-English
 
-## WMT14 English-German
+In this dataset,  this dataset contains 1.25M training sentences. We learn a 25K subword dictionary for source and target languages respectively. We adopt a `transformer_small` model setting. The results are as follow:
 
-# Results
+||MT04|MT05|MT06|MT08|MT12|
+|:-:|:-:|:-:|:-:|:-:|:-:|
+|Beam=10|40.34|-|-|-|-|
+
+## WMT14 English-German
+This dataset contains 4.5M sentence pairs.
 
 # License
 fairseq-py is BSD-licensed.

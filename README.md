@@ -20,7 +20,7 @@ And if you use this code about transformer, please cite:
   booktitle = {Proc. of NIPS},
 }
 ```
-Feel grateful for the contribution of the facebook research and the google research. Besides, if you get benefits from this repository, please give me a star.
+Feel grateful for the contribution of the facebook research and the google research. **Besides, if you get benefits from this repository, please give me a star.**
 
 # Details
 

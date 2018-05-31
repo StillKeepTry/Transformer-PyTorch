@@ -25,7 +25,7 @@ Feel grateful for the contribution of the facebook research and the google resea
 # Details
 
 ## How to install Transformer-PyTorch
-You first need to install PyTorch >= 0.4.0. And then
+You first need to install PyTorch >= 0.4.0 and Python = 3.6. And then
 ```
 pip install -r requirements.txt
 python setup.py build

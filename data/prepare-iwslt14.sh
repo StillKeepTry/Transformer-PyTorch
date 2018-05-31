@@ -2,18 +2,18 @@
 #
 # Adapted from https://github.com/facebookresearch/MIXER/blob/master/prepareData.sh
 
-echo 'Cloning Moses github repository (for tokenization scripts)...'
-git clone https://github.com/moses-smt/mosesdecoder.git
-
-echo 'Cloning Subword NMT repository (for BPE pre-processing)...'
-git clone https://github.com/rsennrich/subword-nmt.git
+#echo 'Cloning Moses github repository (for tokenization scripts)...'
+#git clone https://github.com/moses-smt/mosesdecoder.git
+#
+#echo 'Cloning Subword NMT repository (for BPE pre-processing)...'
+#git clone https://github.com/rsennrich/subword-nmt.git
 
 SCRIPTS=mosesdecoder/scripts
 TOKENIZER=$SCRIPTS/tokenizer/tokenizer.perl
 LC=$SCRIPTS/tokenizer/lowercase.perl
 CLEAN=$SCRIPTS/training/clean-corpus-n.perl
 BPEROOT=subword-nmt
-BPE_TOKENS=10000
+BPE_TOKENS=25000
 
 URL="https://wit3.fbk.eu/archive/2014-01/texts/de/en/de-en.tgz"
 GZ=de-en.tgz

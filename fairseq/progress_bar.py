@@ -4,7 +4,6 @@
 # This source code is licensed under the license found in the LICENSE file in
 # the root directory of this source tree. An additional grant of patent rights
 # can be found in the PATENTS file in the same directory.
-#
 
 """
 Wrapper around various loggers and progress bars (e.g., tqdm).
@@ -13,10 +12,31 @@ Wrapper around various loggers and progress bars (e.g., tqdm).
 from collections import OrderedDict
 import json
 from numbers import Number
+import sys
 
 from tqdm import tqdm
 
 from fairseq.meters import AverageMeter
+
+
+def build_progress_bar(args, iterator, epoch=None, prefix=None, default='tqdm', no_progress_bar='none'):
+    if args.log_format is None:
+        args.log_format = no_progress_bar if args.no_progress_bar else default
+
+    if args.log_format == 'tqdm' and not sys.stderr.isatty():
+        args.log_format = 'simple'
+
+    if args.log_format == 'json':
+        bar = json_progress_bar(iterator, epoch, prefix, args.log_interval)
+    elif args.log_format == 'none':
+        bar = noop_progress_bar(iterator, epoch, prefix)
+    elif args.log_format == 'simple':
+        bar = simple_progress_bar(iterator, epoch, prefix, args.log_interval)
+    elif args.log_format == 'tqdm':
+        bar = tqdm_progress_bar(iterator, epoch, prefix)
+    else:
+        raise ValueError('Unknown log format: {}'.format(args.log_format))
+    return bar
 
 
 class progress_bar(object):
@@ -87,9 +107,9 @@ class json_progress_bar(progress_bar):
             yield obj
             if self.stats is not None and i > 0 and \
                     self.log_interval is not None and i % self.log_interval == 0:
-                update = self.epoch + float(i / size) if self.epoch is not None else None
+                update = self.epoch - 1 + float(i / size) if self.epoch is not None else None
                 stats = self._format_stats(self.stats, epoch=self.epoch, update=update)
-                print('sweep_log: ' + json.dumps(stats), flush=True)
+                print(json.dumps(stats), flush=True)
 
     def log(self, stats):
         """Log intermediate stats according to log_interval."""

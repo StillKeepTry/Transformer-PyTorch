@@ -3,34 +3,82 @@ from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 
+import math
+
 from fairseq import utils
-from fairseq.modules import LearnedPositionalEmbedding, LayerNormalization, BeamableMM
 from fairseq.data import LanguagePairDataset
+from fairseq.modules import LearnedPositionalEmbedding, LayerNormalization, SinusoidalPositionalEmbedding
 
-from . import FairseqEncoder, FairseqIncrementalDecoder, FairseqModel
+from . import FairseqEncoder, FairseqIncrementalDecoder, FairseqModel, register_model, register_model_architecture
 
-
+@register_model('transformer')
 class TransformerModel(FairseqModel):
     def __init__(self, encoder, decoder):
         super().__init__(encoder, decoder)
 
+    @staticmethod
+    def add_args(parser):
+        parser.add_argument('--dropout', default=0.1, type=float, metavar='D',
+                            help='dropout probability')
+        parser.add_argument('--hidden_size', type=int, metavar='N',
+                            help='The hidden size')
+        parser.add_argument('--filter_size', type=int, metavar='N',
+                            help='The filter size')
+        parser.add_argument('--num_layers', type=int, metavar='N',
+                            help='The number of hidden layer')
+        parser.add_argument('--num_head', type=int, metavar='N',
+                            help='The number of heads')
+        parser.add_argument('--position', type=str, metavar='P',
+                            default='learned', choices=['learned', 'timing'],
+                            help='The method of learning position')
+
+    @classmethod
+    def build_model(cls, args, src_dict, dst_dict):
+        encoder = TransformerEncoder(
+            src_dict,
+            embed_dim=args.hidden_size,
+            hidden_size=args.hidden_size,
+            filter_size=args.filter_size,
+            num_layers=args.num_layers,
+            num_heads=args.num_heads,
+            dropout=args.dropout,
+            pos=args.position,
+        )
+        decoder = TransformerDecoder(
+            dst_dict,
+            embed_dim=args.hidden_size,
+            hidden_size=args.hidden_size,
+            filter_size=args.filter_size,
+            num_layers=args.num_layers,
+            num_heads=args.num_heads,
+            dropout=args.dropout,
+            pos=args.position,
+        )
+        return TransformerModel(encoder, decoder)
+
 
 class TransformerEncoder(FairseqEncoder):
     """Transformer encoder."""
-    def __init__(self, dictionary, embed_dim=256, max_positions=1024,
+    def __init__(self, dictionary, embed_dim=256, max_positions=1024, pos="learned",
                  num_layers=2, num_heads=8,
                  filter_size=256, hidden_size=256,
                  dropout=0.1, attention_dropout=0.1, relu_dropout=0.1):
         super().__init__(dictionary)
+        assert pos == "learned" or pos == "timing" or pos == "nopos"
+
         self.dropout = dropout
         self.attention_dropout = attention_dropout
         self.relu_dropout = relu_dropout
+        self.pos = pos
 
         num_embeddings = len(dictionary)
         padding_idx = dictionary.pad()
         self.embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
-        self.embed_positions = PositionalEmbedding(max_positions, embed_dim, padding_idx,
-                                                   left_pad=LanguagePairDataset.LEFT_PAD_SOURCE)
+        if self.pos == "learned":
+            self.embed_positions = PositionalEmbedding(max_positions, embed_dim, padding_idx,
+                                                       left_pad=LanguagePairDataset.LEFT_PAD_SOURCE)
+        if self.pos == "timing":
+            self.embed_positions = SinusoidalPositionalEmbedding(embed_dim, padding_idx, left_pad=LanguagePairDataset.LEFT_PAD_SOURCE)
 
         self.layers = num_layers
 
@@ -48,11 +96,14 @@ class TransformerEncoder(FairseqEncoder):
             self.norm2_blocks.append(LayerNormalization(hidden_size))
         self.out_norm = LayerNormalization(hidden_size)
 
-    def forward(self, src_tokens):
+    def forward(self, src_tokens, src_lengths):
         # embed tokens plus positions
         input_to_padding = attention_bias_ignore_padding(src_tokens, self.dictionary.pad())
         encoder_self_attention_bias = encoder_attention_bias(input_to_padding)
-        encoder_input = self.embed_tokens(src_tokens) + self.embed_positions(src_tokens)
+        encoder_input = self.embed_tokens(src_tokens)
+        if self.pos != "nopos":
+            encoder_input += self.embed_positions(src_tokens)
+
         x = F.dropout(encoder_input, p=self.dropout, training=self.training)
 
         for self_attention, ffn, norm1, norm2 in zip(self.self_attention_blocks,
@@ -68,26 +119,36 @@ class TransformerEncoder(FairseqEncoder):
 
     def max_positions(self):
         """Maximum input length supported by the encoder."""
-        return self.embed_positions.max_positions()
+        if self.pos == "learned":
+            return self.embed_positions.max_positions()
+        else:
+            return 1024
 
 
 class TransformerDecoder(FairseqIncrementalDecoder):
     """Transformer decoder."""
-    def __init__(self, dictionary, embed_dim=256, max_positions=1024,
+    def __init__(self, dictionary, embed_dim=256, max_positions=1024, pos="learned",
                  num_layers=2, num_heads=8,
                  filter_size=256, hidden_size=256,
                  dropout=0.1, attention_dropout=0.1, relu_dropout=0.1, share_embed=False):
         super().__init__(dictionary)
         self.register_buffer('version', torch.Tensor([2]))
+        assert pos == "learned" or pos == "timing" or pos == "nopos"
+
         self.dropout = dropout
         self.attention_dropout = attention_dropout
         self.relu_dropout = relu_dropout
+        self.pos = pos
 
         num_embeddings = len(dictionary)
         padding_idx = dictionary.pad()
         self.embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
-        self.embed_positions = PositionalEmbedding(max_positions, embed_dim, padding_idx,
-                                                   left_pad=LanguagePairDataset.LEFT_PAD_TARGET)
+        if self.pos == "learned":
+            self.embed_positions = PositionalEmbedding(max_positions, embed_dim, padding_idx,
+                                                       left_pad=LanguagePairDataset.LEFT_PAD_TARGET)
+        if self.pos == "timing":
+            self.embed_positions = SinusoidalPositionalEmbedding(embed_dim, padding_idx,
+                                                                 left_pad=LanguagePairDataset.LEFT_PAD_TARGET)
 
         self.layers = num_layers
 
@@ -110,7 +171,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                                                                    hidden_size,
                                                                    hidden_size,
                                                                    num_heads))
-
+        self.out_norm = LayerNormalization(hidden_size)
         if share_embed:
             assert out_embed_dim == embed_dim, \
                 "Shared embed weights implies same dimensions " \
@@ -120,18 +181,19 @@ class TransformerDecoder(FairseqIncrementalDecoder):
         else:
             self.out_embed = Linear(hidden_size, num_embeddings, dropout=dropout)
 
-    def forward(self, input_tokens, encoder_out):
+    def forward(self, input_tokens, encoder_out, incremental_state=None):
         # split and transpose encoder outputs
 
         input_to_padding = attention_bias_ignore_padding(input_tokens, self.dictionary.pad())
         decoder_self_attention_bias = encoder_attention_bias(input_to_padding)
         decoder_self_attention_bias += attention_bias_lower_triangle(input_tokens)
         # embed positions
-        positions = self.embed_positions(input_tokens)
 
-        if self._is_incremental_eval:
+        positions = self.embed_positions(input_tokens, incremental_state)
+        if incremental_state is not None:
             input_tokens = input_tokens[:, -1:]
             decoder_self_attention_bias = decoder_self_attention_bias[:, -1:, :]
+
         # embed tokens and positions
         x = self.embed_tokens(input_tokens) + positions
         x = F.dropout(x, p=self.dropout, training=self.training)
@@ -144,10 +206,10 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                                                                               self.norm1_blocks,
                                                                               self.norm2_blocks,
                                                                               self.norm3_blocks):
-            y = self_attention(norm1(x), None, decoder_self_attention_bias)
+            y = self_attention(norm1(x), None, decoder_self_attention_bias, incremental_state)
             x = residual(x, y, self.dropout, self.training)
             
-            if self._is_incremental_eval:
+            if incremental_state is not None:
                 y, attn_scores = encdec_attention(norm2(x), encoder_out, None, True)
                 attn_scores = attn_scores / self.layers
                 if avg_attn_scores is None:
@@ -160,12 +222,8 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
             y = ffn(norm3(x))
             x = residual(x, y, self.dropout, self.training)
-        x = self.out_embed(x)
+        x = self.out_embed(self.out_norm(x))
         return x, avg_attn_scores
-
-    def reorder_incremental_state(self, new_order):
-        """Reorder buffered internal state (for incremental generation)."""
-        super().reorder_incremental_state(new_order)
 
     def max_positions(self):
         """Maximum output length supported by the decoder."""
@@ -242,35 +300,35 @@ class MultiheadAttentionDecoder(MultiheadAttention):
                  num_heads, dropout=0.1):
         super(MultiheadAttentionDecoder, self).__init__(key_depth, value_depth, output_depth,
                                                         num_heads, dropout)
-        self._is_incremental_eval = False
 
-    def incremental_eval(self, mode=True):
-        self._is_incremental_eval = mode
-        if mode:
-            self.clear_incremental_state()
-
-    def forward(self, query_antecedent, memory_antecedent, bias):
-        if self._is_incremental_eval:
-            return self.incremental_forward(query_antecedent, memory_antecedent, bias)
+    def forward(self, query_antecedent, memory_antecedent, bias, incremental_state=None):
+        if incremental_state is not None:
+            return self.incremental_forward(query_antecedent, memory_antecedent, bias, incremental_state)
         else:
             return super().forward(query_antecedent, memory_antecedent, bias)
     
-    def incremental_forward(self, query_antecedent, memory_antecedent, bias):
+    def incremental_forward(self, query_antecedent, memory_antecedent, bias, incremental_state):
         if memory_antecedent is None:
             memory_antecedent = query_antecedent
         q = self._query(query_antecedent)
         k = self._key(memory_antecedent)
         v = self._value(memory_antecedent)
         q *= self.key_depth_per_head ** -0.5
-        if self.key_buffer is None:
-            self.key_buffer = k.clone()
-            self.value_buffer = v.clone()
-        else:
-            self.key_buffer = torch.cat([self.key_buffer, k], 1)
-            self.value_buffer = torch.cat([self.value_buffer, v], 1)
 
-        k = self.key_buffer
-        v = self.value_buffer
+        key_buffer = self._get_input_buffer(incremental_state, 'key_buffer')
+        value_buffer = self._get_input_buffer(incremental_state, 'value_buffer')
+        if key_buffer is None:
+            key_buffer = k.clone()
+            value_buffer = v.clone()
+        else:
+            key_buffer = torch.cat([key_buffer, k], 1)
+            value_buffer = torch.cat([value_buffer, v], 1)
+
+        self._set_input_buffer(incremental_state, key_buffer, 'key_buffer')
+        self._set_input_buffer(incremental_state, value_buffer, 'value_buffer')
+
+        k = key_buffer
+        v = value_buffer
         
         # split heads
         q = split_heads(q, self.num_heads)
@@ -284,17 +342,20 @@ class MultiheadAttentionDecoder(MultiheadAttention):
         x = self.output_perform(x)
         return x
 
-    def clear_incremental_state(self):
-        """
-        Key Buffer: [Batch size, Length, Dimmension]
-        """
-        self.key_buffer = None
-        self.value_buffer = None
+    def reorder_incremental_state(self, incremental_state, new_order):
+        key_buffer = self._get_input_buffer(incremental_state, 'key_buffer')
+        value_buffer = self._get_input_buffer(incremental_state, 'value_buffer')
+        if key_buffer is not None:
+            key_buffer.data = key_buffer.data.index_select(0, new_order)
+            value_buffer.data = value_buffer.data.index_select(0, new_order)
+            self._set_input_buffer(incremental_state, key_buffer, 'key_buffer')
+            self._set_input_buffer(incremental_state, value_buffer, 'value_buffer')
 
-    def reorder_incremental_state(self, new_order):
-        if self.key_buffer is not None:
-            self.key_buffer.data = self.key_buffer.data.index_select(0, new_order)
-            self.value_buffer.data = self.value_buffer.data.index_select(0, new_order)
+    def _get_input_buffer(self, incremental_state, name):
+        return utils.get_incremental_state(self, incremental_state, name)
+
+    def _set_input_buffer(self, incremental_state, new_buffer, name):
+        return utils.set_incremental_state(self, incremental_state, name, new_buffer)
 
 
 class FeedForwardNetwork(nn.Module):
@@ -410,67 +471,60 @@ def encoder_attention_bias(bias):
     return bias.expand(batch_size, length, length).float() * -1e9
 
 
-def get_archs():
-    return ['transformer_small', 'transformer', 'transformer_base', 'transformer_big']
+def get_timing_signal_1d(position, num_timescales, min_timescale=1.0, max_timescale=1.0e4):
+    log_timescale_increment = (
+        math.log(float(max_timescale) / float(min_timescale)) / 
+        (num_timescales - 1))
+    inv_timescales = min_timescale * torch.exp(
+        torch.arange(num_timescales) * -log_timescale_increment)
+    scaled_time = position.unsqueeze(1) * inv_timescales.unsqueeze(0)
+    signal = torch.cat([torch.sin(scaled_time), torch.cos(scaled_time)], dim=1)
+    return signal
 
 
-def _check_arch(args):
-    if args.arch not in get_archs():
-        raise ValueError('Unknown transformer model architecture: {}'.format(args.arch))
-    if args.arch != 'transformer':
-        for a in ['hidden_size', 'filter_size', 'num_heads', 'num_layers']:
-            if hasattr(args, a):
-                raise ValueError('--{} cannot be combined with --arch={}'.format(a, args.arch))
+def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
+    """
+    Args:
+        x: [batch_size, length, channels]
+    """
+    signal = get_timing_signal_1d(torch.arange(x.size(1)), 
+                                  x.size(2) // 2,
+                                  min_timescale,
+                                  max_timescale)
+    signal = signal.unsqueeze(0)
+    signal = signal.type_as(x.data)
+    x.data.add_(signal)
+    return x
 
 
-def parse_arch(args):
-    _check_arch(args)
-
-    if args.arch == 'transformer_small':
-        args.hidden_size = 256
-        args.filter_size = 1024
-        args.num_heads = 4
-        args.num_layers = 2
-        args.label_smoothing = 0.1
-        args.dropout = 0.1
-    elif args.arch == 'transformer_base':
-        args.hidden_size = 512
-        args.filter_size = 2048
-        args.num_heads = 8
-        args.label_smoothing = 0.1
-        args.num_layers = 6
-        args.dropout = 0.1
-    elif args.arch == 'transformer_big':
-        args.hidden_size = 1024
-        args.filter_size = 4096
-        args.num_heads = 16
-        args.label_smoothing = 0.1
-        args.num_layers = 6
-        args.dropout = 0.2
-    else:
-        assert args.arch == 'transformer'
-
-    return args
+@register_model_architecture('transformer', 'transformer')
+def base_architecture(args):
+    args.hidden_size = 256
+    args.filter_size = 1024
+    args.num_heads = 4
+    args.num_layers = 2
+    args.label_smoothing = 0.1
+    args.dropout = 0.1
 
 
-def build_model(args, src_dict, dst_dict):
-    encoder = TransformerEncoder(
-        src_dict,
-        embed_dim=args.hidden_size,
-        hidden_size=args.hidden_size,
-        filter_size=args.filter_size,
-        num_layers=args.num_layers,
-        num_heads=args.num_heads,
-        dropout=args.dropout
-    )
-    decoder = TransformerDecoder(
-        dst_dict,
-        embed_dim=args.hidden_size,
-        hidden_size=args.hidden_size,
-        filter_size=args.filter_size,
-        num_layers=args.num_layers,
-        num_heads=args.num_heads,
-        dropout=args.dropout
-    )
-    return TransformerModel(encoder, decoder)
+@register_model_architecture('transformer', 'transformer_small')
+def transformer_small(args):
+    base_architecture(args)
 
+
+@register_model_architecture('transformer', 'transformer_base')
+def transformer_base(args):
+    base_architecture(args)
+    args.hidden_size = 512
+    args.filter_size = 2048
+    args.num_heads = 8
+    args.num_layers = 6
+
+
+@register_model_architecture('transformer', 'transformer_big')
+def transformer_big(args):
+    transformer_base(args)
+    args.hidden_size = 1024
+    args.filter_size = 4096
+    args.num_heads = 16
+    args.dropout = 0.1

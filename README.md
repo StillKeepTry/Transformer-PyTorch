@@ -75,6 +75,8 @@ For big model, the result is as:
 |5.5w|38.00|
 |11w|39.44|
 |16w|40.21|
+|27w|40.46|
+|30w|40.76|
 
 # License
 fairseq-py is BSD-licensed.

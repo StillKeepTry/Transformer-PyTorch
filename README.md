@@ -58,7 +58,7 @@ In this dataset,  this dataset contains 1.25M training sentences. We learn a 25K
 This dataset contains 4.5M sentence pairs. Wait ...
 
 ## WMT14 English-French
-For base model, we learned a 40K BPE for english and french. Beam size = 5.
+For base model, we learned a 40K BPE for english and french. Beam size = 5. We use 8 GPUs and the batch size is 4000 for each gpu.
 
 |Steps|BLEU|
 |:-:|:-:|
@@ -68,7 +68,7 @@ For base model, we learned a 40K BPE for english and french. Beam size = 5.
 |17w|39.06|
 |21w|39.30|
 
-For big model, the result is as:
+For big model, the batch size is 3072 for each gpu. The result is as:
 
 |Steps|BLEU|
 |:-:|:-:|

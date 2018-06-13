@@ -36,7 +36,7 @@ Generating binary data, please follow the script under [data/](data/), i have pr
 # Results
 
 ## IWSLT14 German-English
-In this dataset,  this dataset contains 160K training sentences. We recommend you to use `transformer_small` setting. The beam size is set as 5. The results are as follow:
+This dataset contains 160K training sentences. We recommend you to use `transformer_small` setting. The beam size is set as 5. The results are as follow:
 
 |Word Type|BLEU|
 |:-:|:-:|
@@ -47,7 +47,7 @@ Please try more checkpoint, not only the last checkpoint.
 
 ## Nist Chinese-English
 
-In this dataset,  this dataset contains 1.25M training sentences. We learn a 25K subword dictionary for source and target languages respectively. We adopt a `transformer_base` model setting. The results are as follow:
+This dataset contains 1.25M training sentences. We learn a 25K subword dictionary for source and target languages respectively. We adopt a `transformer_base` model setting. The results are as follow:
 
 ||MT04|MT05|MT06|MT08|MT12|
 |:-:|:-:|:-:|:-:|:-:|:-:|

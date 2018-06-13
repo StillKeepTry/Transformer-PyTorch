@@ -85,8 +85,8 @@ Limited to resource, i just conduct experiment only once on Big model setting an
 > * If you have more suggestions for improving this project, leaving message under issues.
 
 Our many works are built upon this project, include:
-> Double Path Networks for Sequence to Sequence Learning, (COLING 2018)
-> Other submitted papers.
+> * Double Path Networks for Sequence to Sequence Learning, (COLING 2018)
+> * Other submitted papers.
 
 # License
 fairseq is BSD-licensed. The released codes modified the original fairseq are BSD-licensed. The rest of the codes are MIT-licensed.

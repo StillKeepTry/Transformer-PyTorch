@@ -82,7 +82,7 @@ Limited to resource, i just conduct experiment only once on Big model setting an
 ## Note
 > * This project is only maintained by myself. Therefore, there will exists some minor error in code style.
 > * Instead of adam, i try NAG as the default optimizer, i find this optimized method can also produce better performance.
-> * If you have more suggestions for improveing, you can message under issues.
+> * If you have more suggestions for improving this project, leaving message under issues.
 
 # License
 fairseq is BSD-licensed. The released codes modified the original fairseq are BSD-licensed. The rest of the codes are MIT-licensed.

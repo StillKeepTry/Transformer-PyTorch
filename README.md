@@ -80,9 +80,13 @@ And For big model, the batch size is 3072 for each gpu. The result is as:
 Limited to resource, i just conduct experiment only once on Big model setting and do not try more parameters such as learning rate. I think you can produce better performance if you have rich GPUs.
 
 ## Note
-> * This project is only maintained by myself. Therefore, there will exists some minor error in code style.
+> * This project is only maintained by myself. Therefore, there still exists some minor errors in code style.
 > * Instead of adam, i try NAG as the default optimizer, i find this optimized method can also produce better performance.
 > * If you have more suggestions for improving this project, leaving message under issues.
+
+Our many works are built upon this project, include:
+> Double Path Networks for Sequence to Sequence Learning, (COLING 2018)
+> Other submitted papers.
 
 # License
 fairseq is BSD-licensed. The released codes modified the original fairseq are BSD-licensed. The rest of the codes are MIT-licensed.

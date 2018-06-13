@@ -1,6 +1,5 @@
 # Introduction
-
-This project provide a PyTorch implementation about [Attention is all you need](https://arxiv.org/pdf/1706.03762.pdf) based on [fairseq-py](https://github.com/facebookresearch/fairseq-py) (An official toolkit of facebook research). You can also use office code about *Attention is all you need* from [tensor2tensor](https://github.com/tensorflow/tensor2tensor).
+This project provides a PyTorch implementation about [Attention is all you need](https://arxiv.org/pdf/1706.03762.pdf) based on [fairseq-py](https://github.com/facebookresearch/fairseq-py) (An official toolkit of facebook research). You can also use official code about *Attention is all you need* from [tensor2tensor](https://github.com/tensorflow/tensor2tensor).
 
 If you use this code about cnn, please cite:
 ```
@@ -20,7 +19,7 @@ And if you use this code about transformer, please cite:
   booktitle = {Proc. of NIPS},
 }
 ```
-Feel grateful for the contribution of the facebook research and the google research. **Besides, if you get benefits from this repository, please give me a star.**
+Feel grateful for the contribution of the facebook research and google research. **Besides, if you get benefits from this repository, please give me a star.**
 
 # Details
 
@@ -32,7 +31,7 @@ python setup.py build
 python setup.py develop
 ```
 
-Generating binary data, please follow the script under [data/](data/), i have provide a run script for iwslt14.
+Generating binary data, please follow the script under [data/](data/), i have provide a [run script](run_iwslt14_transformer.sh) for iwslt14.
 
 # Results
 
@@ -58,7 +57,7 @@ In this dataset,  this dataset contains 1.25M training sentences. We learn a 25K
 This dataset contains 4.5M sentence pairs. Wait ...
 
 ## WMT14 English-French
-For base model, we learned a 40K BPE for english and french. Beam size = 5. We use 8 GPUs and the batch size is 4000 for each gpu.
+This dataset include 36M sentence pairs. We learned a 40K BPE for english and french. Beam size = 5. And 8 GPUs ared used in this task. For base model setting, the batch size is 4000 for each gpu.
 
 |Steps|BLEU|
 |:-:|:-:|
@@ -68,7 +67,7 @@ For base model, we learned a 40K BPE for english and french. Beam size = 5. We u
 |17w|39.06|
 |21w|39.30|
 
-For big model, the batch size is 3072 for each gpu. The result is as:
+And For big model, the batch size is 3072 for each gpu. The result is as:
 
 |Steps|BLEU|
 |:-:|:-:|
@@ -78,7 +77,12 @@ For big model, the batch size is 3072 for each gpu. The result is as:
 |27w|40.46|
 |30w|40.76|
 
+Limited to resource, i just conduct experiment only once on Big model setting and do not try more parameters such as learning rate. I think you can produce better performance if you have rich GPUs.
+
+## Note
+> This project is only maintained by myself. Therefore, there will exists some minor error in code style.
+> Instead of adam, i try NAG as the default optimizer, i find this optimized method can also produce better performance.
+> If you have more suggestions for improveing, you can message under issues.
+
 # License
-fairseq-py is BSD-licensed.
-The license applies to the pre-trained models as well.
-We also provide an additional patent grant.
+fairseq is BSD-licensed. The released codes modified the original fairseq are BSD-licensed. The rest of the codes are MIT-licensed.

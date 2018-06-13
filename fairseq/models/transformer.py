@@ -29,11 +29,16 @@ class TransformerModel(FairseqModel):
         parser.add_argument('--num_head', type=int, metavar='N',
                             help='The number of heads')
         parser.add_argument('--position', type=str, metavar='P',
-                            default='learned', choices=['learned', 'timing'],
+                            default='learned', choices=['learned', 'timing', 'nopos'],
                             help='The method of learning position')
+        parser.add_argument('--share-input-output-embed', action='store_true',
+                            help='share input and output embeddings')
 
     @classmethod
     def build_model(cls, args, src_dict, dst_dict):
+        if not hasattr(args, 'share_input_output_embed'):
+            args.share_input_output_embed = False
+
         encoder = TransformerEncoder(
             src_dict,
             embed_dim=args.hidden_size,
@@ -53,6 +58,7 @@ class TransformerModel(FairseqModel):
             num_heads=args.num_heads,
             dropout=args.dropout,
             pos=args.position,
+            share_embed=args.share_input_output_embed,
         )
         return TransformerModel(encoder, decoder)
 
@@ -78,7 +84,8 @@ class TransformerEncoder(FairseqEncoder):
             self.embed_positions = PositionalEmbedding(max_positions, embed_dim, padding_idx,
                                                        left_pad=LanguagePairDataset.LEFT_PAD_SOURCE)
         if self.pos == "timing":
-            self.embed_positions = SinusoidalPositionalEmbedding(embed_dim, padding_idx, left_pad=LanguagePairDataset.LEFT_PAD_SOURCE)
+            self.embed_positions = SinusoidalPositionalEmbedding(embed_dim, padding_idx,
+                                                                 left_pad=LanguagePairDataset.LEFT_PAD_SOURCE)
 
         self.layers = num_layers
 
@@ -472,6 +479,8 @@ def encoder_attention_bias(bias):
 
 
 def get_timing_signal_1d(position, num_timescales, min_timescale=1.0, max_timescale=1.0e4):
+    """A pytorch implementation extended from tensor2tensor, just for comparsion
+    """
     log_timescale_increment = (
         math.log(float(max_timescale) / float(min_timescale)) / 
         (num_timescales - 1))

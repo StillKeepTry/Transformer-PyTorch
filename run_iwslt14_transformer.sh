@@ -4,9 +4,9 @@ SETTING=transformer_small
 
 mkdir -p $model/$PROBLEM/$SETTING
 
-CUDA_VISIBLE_DEVICES=0 python train.py data-bin/iwslt14.tokenized.de-en \
-	--clip-norm 0.1 --dropout 0.2 --max-tokens 4000 \
+CUDA_VISIBLE_DEVICES=0 python train.py ../data-bin/iwslt14.tokenized.de-en \
 	--arch $SETTING --save-dir $model/$PROBLEM/$SETTING \
+	--clip-norm 0.1 --dropout 0.2 --max-tokens 4000 \
 	--criterion label_smoothed_cross_entropy --label-smoothing 0.1 \
 	--lr-scheduler inverse_sqrt --lr 0.25 --optimizer nag --warmup-init-lr 0.25 \
-	--warmup-updates 4000 --max-update 100000
+	--warmup-updates 4000 --max-update 100000 

@@ -18,7 +18,7 @@ class TransformerModel(FairseqModel):
 
     @staticmethod
     def add_args(parser):
-        parser.add_argument('--dropout', default=0.1, type=float, metavar='D',
+        parser.add_argument('--dropout', type=float, metavar='D',
                             help='dropout probability')
         parser.add_argument('--hidden_size', type=int, metavar='N',
                             help='The hidden size')
@@ -38,7 +38,9 @@ class TransformerModel(FairseqModel):
     def build_model(cls, args, src_dict, dst_dict):
         if not hasattr(args, 'share_input_output_embed'):
             args.share_input_output_embed = False
-
+        import IPython
+        IPython.embed()
+        exit()
         encoder = TransformerEncoder(
             src_dict,
             embed_dim=args.hidden_size,
@@ -536,4 +538,3 @@ def transformer_big(args):
     args.hidden_size = 1024
     args.filter_size = 4096
     args.num_heads = 16
-    args.dropout = 0.1

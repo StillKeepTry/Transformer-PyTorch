@@ -38,9 +38,6 @@ class TransformerModel(FairseqModel):
     def build_model(cls, args, src_dict, dst_dict):
         if not hasattr(args, 'share_input_output_embed'):
             args.share_input_output_embed = False
-        import IPython
-        IPython.embed()
-        exit()
         encoder = TransformerEncoder(
             src_dict,
             embed_dim=args.hidden_size,

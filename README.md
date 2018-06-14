@@ -57,7 +57,7 @@ This dataset contains 1.25M training sentences. We learn a 25K subword dictionar
 This dataset contains 4.5M sentence pairs. Wait ...
 
 ## WMT14 English-French
-This dataset include 36M sentence pairs. We learned a 40K BPE for english and french. Beam size = 5. And 8 GPUs ared used in this task. For base model setting, the batch size is 4000 for each gpu.
+This dataset include 36M sentence pairs. We learned a 40K BPE for english and french. Beam size = 5. And 8 GPUs are used in this task. For base model setting, the batch size is 4000 for each gpu.
 
 |Steps|BLEU|
 |:-:|:-:|

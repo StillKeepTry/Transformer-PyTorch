@@ -507,12 +507,12 @@ def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
 
 @register_model_architecture('transformer', 'transformer')
 def base_architecture(args):
-    args.hidden_size = 256
-    args.filter_size = 1024
-    args.num_heads = 4
-    args.num_layers = 2
-    args.label_smoothing = 0.1
-    args.dropout = 0.1
+    args.hidden_size = getattr(args, 'hidden_size', 256)
+    args.filter_size = getattr(args, 'filter_size', 1024)
+    args.num_heads = getattr(args, 'num_heads', 4)
+    args.num_layers = getattr(args, 'num_layers', 2)
+    args.label_smoothing = getattr(args, 'label_smoothing', 0.1)
+    args.dropout = getattr(args, 'dropout', 0.1)
 
 
 @register_model_architecture('transformer', 'transformer_small')
@@ -522,16 +522,16 @@ def transformer_small(args):
 
 @register_model_architecture('transformer', 'transformer_base')
 def transformer_base(args):
+    args.hidden_size = getattr(args, 'hidden_size', 512)
+    args.filter_size = getattr(args, 'filter_size', 2048)
+    args.num_heads = getattr(args, 'num_heads', 8)
+    args.num_layers = getattr(args, 'num_layers', 6)
     base_architecture(args)
-    args.hidden_size = 512
-    args.filter_size = 2048
-    args.num_heads = 8
-    args.num_layers = 6
 
 
 @register_model_architecture('transformer', 'transformer_big')
 def transformer_big(args):
+    args.hidden_size = getattr(args, 'hidden_size', 1024)
+    args.filter_size = getattr(args, 'filter_size', 4096)
+    args.num_heads = getattr(args, 'num_heads', 16)
     transformer_base(args)
-    args.hidden_size = 1024
-    args.filter_size = 4096
-    args.num_heads = 16

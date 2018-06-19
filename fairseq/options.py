@@ -62,11 +62,7 @@ def parse_args_and_arch(parser, input_args=None):
         args.max_sentences_valid = args.max_sentences
 
     # Apply architecture configuration.
-    arch_arg = argparse.Namespace()
-    ARCH_CONFIG_REGISTRY[args.arch](arch_arg)
-    for (key, value) in arch_arg.__dict__.items():
-        if key not in args:
-            setattr(args, key, value)
+    ARCH_CONFIG_REGISTRY[args.arch](args)
     return args
 
 

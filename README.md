@@ -58,7 +58,7 @@ This dataset contains 4.5M sentence pairs.
 
 |model Setting| BLEU|
 |:-:|:-:|
-|Big|28.48|
+|transformer_big|28.48|
 
 
 ## WMT14 English-French

@@ -7,11 +7,11 @@ import math
 
 from fairseq import utils
 from fairseq.data import LanguagePairDataset
-from fairseq.modules import LearnedPositionalEmbedding, LayerNormalization, SinusoidalPositionalEmbedding
+from fairseq.modules import LearnedPositionalEmbedding, LayerNormalization, SinusoidalPositionalEmbedding, LinearizedConvolution
 
 from . import FairseqEncoder, FairseqIncrementalDecoder, FairseqModel, register_model, register_model_architecture
 
-@register_model('dpn')
+@register_model('dualpath')
 class DualPathModel(FairseqModel):
     def __init__(self, encoder, decoder):
         super().__init__(encoder, decoder)
@@ -246,6 +246,22 @@ class DualPathDecoder(FairseqIncrementalDecoder):
                                                                    hidden_size,
                                                                    num_heads))
         self.out_norm = LayerNormalization(hidden_size)
+
+        self.projections = nn.ModuleList()
+        self.convolutions = nn.ModuleList()
+        self.attention = nn.ModuleList()
+
+        in_channels = hidden_size
+        for i, (out_channels, kernel_size) in enumerate(convolutions):
+            pad = kernel_size - 1
+            self.projections.append(Linear(in_channels, out_channels)
+                                    if in_channels != out_channels else None)
+            self.convolutions.append(
+                LinearizedConv1d(in_channels, out_channels * 2, kernel_size,
+                                padding=(kernel_size - 1), dropout=dropout)    
+            )
+            self.attention.append(AttentionLayer(out_channels, embed_dim))
+            in_channels = out_channels
         if share_embed:
             assert out_embed_dim == embed_dim, \
                 "Shared embed weights implies same dimensions " \
@@ -274,6 +290,8 @@ class DualPathDecoder(FairseqIncrementalDecoder):
         x = self.embed_tokens(input_tokens) + positions
         x = F.dropout(x, p=self.dropout, training=self.training)
 
+        z = x
+
         avg_attn_scores = None
         num_attn_layers = len(self.encdec_attention_blocks)
         for self_attention, encdec_attention, ffn, norm1, norm2, norm3 in zip(self.self_attention_blocks,
@@ -299,6 +317,14 @@ class DualPathDecoder(FairseqIncrementalDecoder):
             y = ffn(norm3(x))
             x = residual(x, y, self.dropout, self.training)
         x = self.out_embed(self.out_norm(x))
+
+        for proj, conv, attention in zip(self.projections, self.convolutions, self.attention):
+            res = z if proj is None else proj(z)
+
+            z = F.dropout(z, p=self.dropout, training=self.training)
+            z = conv(z, incremental_state)
+            z = F.glu(z, dim=2)
+
         return x, avg_attn_scores
 
     def max_positions(self):
@@ -314,6 +340,11 @@ class DualPathDecoder(FairseqIncrementalDecoder):
                 self.convolutions[i] = nn.utils.weight_norm(conv, dim=0)
             state_dict['decoder.version'] = torch.Tensor([1])
         return state_dict
+
+    def _transpose_if_training(self, x, incremental_state):
+        if incremental_state is None:
+            x = x.transpose(0, 1)
+        return x
 
 
 class MultiheadAttention(nn.Module):
@@ -432,6 +463,11 @@ class MultiheadAttentionDecoder(MultiheadAttention):
 
     def _set_input_buffer(self, incremental_state, new_buffer, name):
         return utils.set_incremental_state(self, incremental_state, name, new_buffer)
+
+
+class GatedNetwork(nn.Module):
+    def __init__(self, hidden_size):
+        self.fc = Linear(hidden_size, hidden_size)
 
 
 class FeedForwardNetwork(nn.Module):
@@ -597,11 +633,3 @@ def transformer_base(args):
     args.num_heads = getattr(args, 'num_heads', 8)
     args.num_layers = getattr(args, 'num_layers', 6)
     base_architecture(args)
-
-
-@register_model_architecture('transformer', 'transformer_big')
-def transformer_big(args):
-    args.hidden_size = getattr(args, 'hidden_size', 1024)
-    args.filter_size = getattr(args, 'filter_size', 4096)
-    args.num_heads = getattr(args, 'num_heads', 16)
-    transformer_base(args)

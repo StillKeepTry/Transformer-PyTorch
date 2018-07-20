@@ -62,13 +62,84 @@ class DualPathModel(FairseqModel):
         return DualPathModel(encoder, decoder)
 
 
+class AttnPathEncoder(nn.Module):
+    def __init__(self,
+                 num_layers=2, num_heads=8, 
+                 filter_size=256, hidden_size=256,
+                 dropout=0.1, attention_dropout=0.1, relu_dropout=0.1):
+        super(AttnPathEncoder, self).__init__()
+        self.layers = num_layers
+        self.self_attention_blocks = nn.ModuleList()
+        self.ffn_blocks = nn.ModuleList()
+        self.norm1_blocks = nn.ModuleList()
+        self.norm2_blocks = nn.ModuleList()
+
+        for i in range(num_layers):
+            self.self_attention_blocks.append(MultiheadAttention(hidden_size,
+                                                                 hidden_size,
+                                                                 hidden_size,
+                                                                 num_heads))
+            self.ffn_blocks.append(FeedForwardNetwork(hidden_size, filter_size, relu_dropout))
+            self.norm1_blocks.append(LayerNormalization(hidden_size))
+            self.norm2_blocks.append(LayerNormalization(hidden_size))
+        self.out_norm = LayerNormalization(hidden_size)
+
+    def forward(self, x):
+        for self_attention, ffn, norm1, norm2 in zip(self.self_attention_blocks,
+                                                     self.ffn_blocks,
+                                                     self.norm1_blocks,
+                                                     self.norm2_blocks):
+            y = self_attention(norm1(x), None, encoder_self_attention_bias)
+            x = residual(x, y, self.dropout, self.training)
+            y = ffn(norm2(x))
+            x = residual(x, y, self.dropout, self.training)
+        x = self.out_norm(x)
+        return x
+
+
+class CNNPathEncoder(nn.Module):
+    def __init__(self,
+                 num_layers=4, hidden_size=256,
+                 dropout=0.1, in_embed=256, out_embed=256):
+        super(CNNPathEncoder, self).__init__()
+        
+        self.layers = num_layers
+        self.dropout = dropout
+        self.fc1 = Linear(in_embed, filter_size, dropout=dropout)
+        self.convolutions = nn.ModuleList()
+
+        kernel_size = 3
+        
+        for i in range(num_layers):
+            padding = 1
+            self.convolutions.append(
+                ConvTBC(hidden_size, hidden_size * 2, kernel_size,
+                        dropout=dropout, padding=padding)
+            )
+        self.fc2 = Linear(filter_size, out_embed)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = x.transpose(0, 1)
+        for conv in zip(self.convolutions):
+            residual = x
+            x = F.dropout(x, p=self.dropout, training=self.training)
+            x = conv(x)
+            x = F.glu(x, dim=2)
+            x = (x + residual) * math.sqrt(0.5)
+        x = x.transpose(1, 0)
+        x = self.fc2(x)
+        x = GradMultiply.apply(x, 1.0 / (2.0 * self.layers))
+        return x
+
+
 class DualPathEncoder(FairseqEncoder):
     """Transformer encoder."""
     def __init__(self, dictionary, embed_dim=256, max_positions=1024, pos="learned",
                  num_layers=2, num_heads=8,
                  filter_size=256, hidden_size=256,
                  dropout=0.1, attention_dropout=0.1, relu_dropout=0.1,
-                 convolutions=((256, 3),) * 4):
+                 convolutions=4):
         super().__init__(dictionary)
         assert pos == "learned" or pos == "timing" or pos == "nopos"
 
@@ -88,34 +159,13 @@ class DualPathEncoder(FairseqEncoder):
                                                                  left_pad=LanguagePairDataset.LEFT_PAD_SOURCE)
 
         self.layers = num_layers
+        self.attnpath = AttnPathEncoder(self.layers, num_heads=num_heads,
+                                        filter_size=filter_size, hidden_size=hidden_size,
+                                        dropout=dropout, attention_dropout=attention_dropout,
+                                        relu_dropout=relu_dropout)
+        self.cnnpath = CNNPathEncoder(self.layers, hidden_size=hidden_size, dropout=dropout,
+                                      in_embed=hidden_size, out_embed=hidden_size)
 
-        self.self_attention_blocks = nn.ModuleList()
-        self.ffn_blocks = nn.ModuleList()
-        self.norm1_blocks = nn.ModuleList()
-        self.norm2_blocks = nn.ModuleList()
-        for i in range(num_layers):
-            self.self_attention_blocks.append(MultiheadAttention(hidden_size,
-                                                                 hidden_size,
-                                                                 hidden_size,
-                                                                 num_heads))
-            self.ffn_blocks.append(FeedForwardNetwork(hidden_size, filter_size, relu_dropout))
-            self.norm1_blocks.append(LayerNormalization(hidden_size))
-            self.norm2_blocks.append(LayerNormalization(hidden_size))
-        self.out_norm = LayerNormalization(hidden_size)
-
-        in_channels = convolutions[0][0]
-        self.fc1 = Linear(embed_dim, in_channels, dropout=dropout)
-        self.projections = nn.ModuleList()
-        self.convolutions = nn.ModuleList()
-        for (out_channels, kernel_size) in convolutions:
-            pad = (kernel_size - 1) / 2
-            self.projections.append(Linear(in_channels, out_channels)
-                                    if in_channels != out_channels else None)
-            self.convolutions.append(
-                ConvTBC(in_channels, out_channels * 2, kernel_size, padding=pad,
-                    dropout=dropout))
-            in_channels = out_channels
-        self.fc2 = Linear(in_channels, embed_dim)
 
     def forward(self, src_tokens, src_lengths):
         # embed tokens plus positions
@@ -126,29 +176,11 @@ class DualPathEncoder(FairseqEncoder):
             encoder_input += self.embed_positions(src_tokens)
 
         x = F.dropout(encoder_input, p=self.dropout, training=self.training)
-        z = x
-
-        for self_attention, ffn, norm1, norm2 in zip(self.self_attention_blocks,
-                                                     self.ffn_blocks,
-                                                     self.norm1_blocks,
-                                                     self.norm2_blocks):
-            y = self_attention(norm1(x), None, encoder_self_attention_bias)
-            x = residual(x, y, self.dropout, self.training)
-            y = ffn(norm2(x))
-            x = residual(x, y, self.dropout, self.training)
-        x = self.out_norm(x)
         
-        z = self.fc1(z)
-        z = z.transpose(0, 1)
-        for proj, conv in zip(self.projections, self.convolutions):
-            r = z if proj is None else proj(x)
-            z = F.dropout(z, p=self.dropout, training=self.training)
-            z = conv(z)
-            z = F.glu(z, dim=2)
-            z = (z + r) * math.sqrt(0.5)
-        z = z.transpose(1, 0)
-        z = self.fc2(z)
-        return (x, z)
+        attn_x = self.attnpath(x)
+        cnn_x = self.cnnpath(x)
+
+        return (attn_x, cnn_x)
 
     def max_positions(self):
         """Maximum input length supported by the encoder."""
@@ -196,6 +228,71 @@ class AttentionLayer(nn.Module):
         if beamable_mm_beam_size is not None:
             del self.bmm
             self.add_module('bmm', BeamableMM(beamable_mm_beam_size))
+
+
+class AttnPathDecoder(nn.Module):
+    def __init__(self,
+                 num_layers=2, num_heads=8,
+                 filter_size=256, hidden_size=256,
+                 dropout=0.1, attention_dropout=0.1, relu_dropout=0.1):
+        super(AttnPathDecoder, self).__init__()
+        self.layers = num_layers
+
+        self.self_attention_blocks = nn.ModuleList()
+        self.encdec_attention_blocks = nn.ModuleList()
+        self.ffn_blocks = nn.ModuleList()
+        self.norm1_blocks = nn.ModuleList()
+        self.norm2_blocks = nn.ModuleList()
+        self.norm3_blocks = nn.ModuleList()
+        self.gate_blocks = nn.ModuleList()
+        for i in range(num_layers):
+            self.self_attention_blocks.append(MultiheadAttentionDecoder(hidden_size,
+                                                                        hidden_size,
+                                                                        hidden_size,
+                                                                        num_heads))
+            self.ffn_blocks.append(FeedForwardNetwork(hidden_size, filter_size, relu_dropout))
+            self.norm1_blocks.append(LayerNormalization(hidden_size))
+            self.norm2_blocks.append(LayerNormalization(hidden_size))
+            self.norm3_blocks.append(LayerNormalization(hidden_size))
+            self.encdec_attention_blocks.append(MultiheadAttention(hidden_size,
+                                                                   hidden_size,
+                                                                   hidden_size,
+                                                                   num_heads))
+        self.out_norm = LayerNormalization(hidden_size)
+    
+    def forward(self, x, encoder_out, incremental_state=None):
+        encoder_out_a, encoder_out_c = encoder_out
+
+        avg_attn_scores = None
+        num_attn_layers = len(self.encdec_attention_blocks)
+        for self_attention, encdec_attention, ffn, norm1, norm2, norm3 in zip(self.self_attention_blocks,
+                                                                              self.encdec_attention_blocks,
+                                                                              self.ffn_blocks,
+                                                                              self.norm1_blocks,
+                                                                              self.norm2_blocks,
+                                                                              self.norm3_blocks):
+            y = self_attention(norm1(x), None, decoder_self_attention_bias, incremental_state)
+            x = residual(x, y, self.dropout, self.training)
+            
+            y, attn_scores = encdec_attention(norm2(x), encoder_out_a, None, True)
+            attn_scores = attn_scores / self.layers
+            if avg_attn_scores is None:
+                avg_attn_scores = attn_scores
+            else:
+                avg_attn_scores.add_(attn_scores)
+
+            x = residual(x, y, self.dropout, self.training)
+
+            y = ffn(norm3(x))
+            x = residual(x, y, self.dropout, self.training)
+        x = self.out_embed(self.out_norm(x))
+        return x, avg_attn_scores
+        
+
+
+class CNNPathDecoder(nn.Module):
+    def __init__(self):
+        pass
 
 
 class DualPathDecoder(FairseqIncrementalDecoder):
@@ -467,7 +564,12 @@ class MultiheadAttentionDecoder(MultiheadAttention):
 
 class GatedNetwork(nn.Module):
     def __init__(self, hidden_size):
+        super(GatedNetwork, self).__init__()
         self.fc = Linear(hidden_size, hidden_size)
+
+    def forward(self, x1, x2):
+        gate = F.sigmoid(self.fc(x1 + x2))
+        return gate * x1 + (1 - gate) * x2
 
 
 class FeedForwardNetwork(nn.Module):

@@ -11,8 +11,8 @@ from fairseq.modules import LearnedPositionalEmbedding, LayerNormalization, Sinu
 
 from . import FairseqEncoder, FairseqIncrementalDecoder, FairseqModel, register_model, register_model_architecture
 
-@register_model('dualpath')
-class DualPathModel(FairseqModel):
+@register_model('dpn')
+class DPModel(FairseqModel):
     def __init__(self, encoder, decoder):
         super().__init__(encoder, decoder)
 
@@ -38,7 +38,7 @@ class DualPathModel(FairseqModel):
     def build_model(cls, args, src_dict, dst_dict):
         if not hasattr(args, 'share_input_output_embed'):
             args.share_input_output_embed = False
-        encoder = DualPathEncoder(
+        encoder = DPEncoder(
             src_dict,
             embed_dim=args.hidden_size,
             hidden_size=args.hidden_size,
@@ -48,7 +48,7 @@ class DualPathModel(FairseqModel):
             dropout=args.dropout,
             pos=args.position,
         )
-        decoder = DualPathDecoder(
+        decoder = DPDecoder(
             dst_dict,
             embed_dim=args.hidden_size,
             hidden_size=args.hidden_size,
@@ -59,7 +59,7 @@ class DualPathModel(FairseqModel):
             pos=args.position,
             share_embed=args.share_input_output_embed,
         )
-        return DualPathModel(encoder, decoder)
+        return DPModel(encoder, decoder)
 
 
 class AttnPathEncoder(nn.Module):
@@ -133,7 +133,7 @@ class CNNPathEncoder(nn.Module):
         return x
 
 
-class DualPathEncoder(FairseqEncoder):
+class DPEncoder(FairseqEncoder):
     """Transformer encoder."""
     def __init__(self, dictionary, embed_dim=256, max_positions=1024, pos="learned",
                  num_layers=2, num_heads=8,
@@ -274,13 +274,15 @@ class AttnPathDecoder(nn.Module):
             y = self_attention(norm1(x), None, decoder_self_attention_bias, incremental_state)
             x = residual(x, y, self.dropout, self.training)
             
-            y, attn_scores = encdec_attention(norm2(x), encoder_out_a, None, True)
+            y0, attn_scores = encdec_attention(norm2(x), encoder_out_a, None, True)
+            y1, attn_scores = encdec_attention(norm2(x), encoder_out_c, None, True)
             attn_scores = attn_scores / self.layers
             if avg_attn_scores is None:
                 avg_attn_scores = attn_scores
             else:
                 avg_attn_scores.add_(attn_scores)
-
+            
+            y = y0 + y1
             x = residual(x, y, self.dropout, self.training)
 
             y = ffn(norm3(x))
@@ -291,11 +293,49 @@ class AttnPathDecoder(nn.Module):
 
 
 class CNNPathDecoder(nn.Module):
-    def __init__(self):
-        pass
+    def __init__(self, 
+                 num_layers=4, hidden_size=256,
+                 dropout=0.1, embed_dim=256):
+        super(CNNPathDecoder, self).__init__()
+
+        self.layers  = num_layers
+        self.dropout = dropout
+        self.convolutions = nn.ModuleList()
+        self.attention = nn.ModuleList()
+
+        kernel_size = 3
+
+        for i in range(num_layers):
+            pad = kernel_size - 1
+            self.convolutions.append(
+                LinearizedConv1d(hidden_size, hidden_size * 2, kernel_size,
+                                 padding=(kernel_size - 1), dropout=dropout)
+            )
+            self.attention.append(AttentionLayer(hidden_size, embed_dim))
+
+    def forward(self, x, encoder_out, incremental_state=None):
+        encoder_out_a, encoder_out_c = encoder_out
+
+        target_embedding = x
+        x = self._transpose_if_training(x, incremental_state)
+
+        for conv, attention in zip(self.convolutions, self.attention):
+            residual = x
+            x = F.dropout(x, p=self.dropout, training=self.training)
+            x = conv(x, incremental_state)
+            x = F.glu(x, dim=2)
+                
+            x0, attn_scores = attention(x, target_embedding, (encoder_out_a, encoder_out_a))
+            x1, attn_scores = attention(x, target_embedding, (encoder_out_c, encoder_out_c))
+            attn_scores = attn_scores / num_attn_layers
+
+            x = self._transpose_if_training(x, incremental_state)
+
+            x = (x + residual) * math.sqrt(0.5)
+        return x, avg_attn_scores
 
 
-class DualPathDecoder(FairseqIncrementalDecoder):
+class DPDecoder(FairseqIncrementalDecoder):
     """Transformer decoder."""
     def __init__(self, dictionary, embed_dim=256, max_positions=1024, pos="learned",
                  num_layers=2, num_heads=8,
@@ -713,7 +753,7 @@ def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
     return x
 
 
-@register_model_architecture('dualpath', 'transformer')
+@register_model_architecture('dpn', 'transformer')
 def base_architecture(args):
     args.hidden_size = getattr(args, 'hidden_size', 256)
     args.filter_size = getattr(args, 'filter_size', 1024)

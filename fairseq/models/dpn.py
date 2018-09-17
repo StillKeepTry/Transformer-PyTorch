@@ -761,17 +761,3 @@ def base_architecture(args):
     args.num_layers = getattr(args, 'num_layers', 2)
     args.label_smoothing = getattr(args, 'label_smoothing', 0.1)
     args.dropout = getattr(args, 'dropout', 0.1)
-
-
-@register_model_architecture('transformer', 'transformer_small')
-def transformer_small(args):
-    base_architecture(args)
-
-
-@register_model_architecture('transformer', 'transformer_base')
-def transformer_base(args):
-    args.hidden_size = getattr(args, 'hidden_size', 512)
-    args.filter_size = getattr(args, 'filter_size', 2048)
-    args.num_heads = getattr(args, 'num_heads', 8)
-    args.num_layers = getattr(args, 'num_layers', 6)
-    base_architecture(args)

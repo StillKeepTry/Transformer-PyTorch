@@ -178,6 +178,7 @@ class TransformerDecoder(FairseqIncrementalDecoder):
                                                                    hidden_size,
                                                                    num_heads))
         self.out_norm = LayerNormalization(hidden_size)
+        out_embed_dim = hidden_size
         if share_embed:
             assert out_embed_dim == embed_dim, \
                 "Shared embed weights implies same dimensions " \

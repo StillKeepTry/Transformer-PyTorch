@@ -753,7 +753,7 @@ def add_timing_signal_1d(x, min_timescale=1.0, max_timescale=1.0e4):
     return x
 
 
-@register_model_architecture('dpn', 'transformer')
+@register_model_architecture('dpn', 'dpn')
 def base_architecture(args):
     args.hidden_size = getattr(args, 'hidden_size', 256)
     args.filter_size = getattr(args, 'filter_size', 1024)
